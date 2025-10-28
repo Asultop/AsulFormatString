@@ -1,0 +1,9 @@
+.cache/*
+.vscode/*
+.cache*
+.vscode*
+color256test*
+colorTest*
+cpp2*
+double_*
+*.exe
