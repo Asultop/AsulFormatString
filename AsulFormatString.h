@@ -39,9 +39,35 @@
 #include "Color256.h"
 class AsulFormatString {
 public:
-    using AdapterMap = std::map<std::string, std::string>;
     using VariantType = std::variant<int, double, std::string, bool, char>;
+    using AdapterMap = std::unordered_map<std::string, std::string>;
+    using FuncMap = std::unordered_map<std::string, std::function<std::string(const VariantType &)> >;
+    
+    static std::string variantToString(const VariantType& v) {
+        std::ostringstream oss;
+        if (std::holds_alternative<int>(v)) oss << std::get<int>(v);
+        else if (std::holds_alternative<double>(v)) oss << std::get<double>(v);
+        else if (std::holds_alternative<std::string>(v)) oss << std::get<std::string>(v);
+        else if (std::holds_alternative<bool>(v)) oss << (std::get<bool>(v) ? "true" : "false");
+        else if (std::holds_alternative<char>(v)) oss << std::get<char>(v);
+        return oss.str();
+    }
     AsulFormatString() = default;
+    void installFuncFormatAdapter(const FuncMap& mp) {
+        for (const auto& [key, value] : mp) {
+            auto it = funcAdapter.find(key);
+            if (it != funcAdapter.end()) {
+                #ifdef ALLOW_DEBUG_ASULFORMATSTRING
+                print("(({YELLOW}) [[LEFT]][[SETW:40]]{} already exists in funcAdapter. New: [[LEFT]][[SETW:40]]{}[[ENDL]]", "Debug",f("{UNDERLINE}={}",key,"<existing function>"),f("{UNDERLINE}={}",key,"<new function>"));
+                #endif
+                it->second = value;
+            } else {
+                funcAdapter.emplace(key, value);
+            }
+        }
+    }
+    void clearFuncFormatAdapter() { funcAdapter.clear(); }
+
     void installFormatAdapter(const AdapterMap& mp) {
         for (const auto& [key, value] : mp) {
             auto it = formatAdapter.find(key);
@@ -55,7 +81,6 @@ public:
             }
         }
     }
-
     void clearFormatAdapter() { formatAdapter.clear(); }
 
     void installLabelAdapter(const AdapterMap& mp) {
@@ -98,6 +123,18 @@ public:
     void installResetLabelAdapter() {
         installLabelAdapter({
             {"RESET", "\033[0m"}
+        });
+    }
+    void installCursorControlLabelAdapter(){
+        installLabelAdapter({
+            {"CURSOR_UP", "\033[A"},
+            {"CURSOR_DOWN", "\033[B"},
+            {"CURSOR_FORWARD", "\033[C"},
+            {"CURSOR_BACKWARD", "\033[D"},
+            {"CURSOR_SAVE_POS", "\0337"},
+            {"CURSOR_RESTORE_POS", "\0338"},
+            {"CURSOR_HIDE", "\033[?25l"},
+            {"CURSOR_SHOW", "\033[?25h"}
         });
     }
     void installLogLabelAdapter() {
@@ -175,7 +212,18 @@ public:
                         result += "{}";
                     }
                 } else {
-                    result += processedFmt.substr(i, j - i + 1);
+                    // 如果是已注册的 funcAdapter（函数格式化适配器），用下一个参数调用并插入返回值
+                    auto itF = funcAdapter.find(placeholder);
+                    if (itF != funcAdapter.end()) {
+                        if (argIndex < argsVec.size()) {
+                            result += itF->second(argsVec[argIndex]);
+                            ++argIndex;
+                        } else {
+                            throw std::invalid_argument(std::string("Not enough arguments for function format '{") + placeholder + "}'");
+                        }
+                    } else {
+                        result += processedFmt.substr(i, j - i + 1);
+                    }
                 }
                 i = j + 1;
             } else {
@@ -398,6 +446,18 @@ public:
                         i = j + 1;
                         continue;
                     }
+                    // 如果注册了 funcAdapter，则以下一个参数调用并把返回值写入输出
+                    auto itF = funcAdapter.find(inner);
+                    if (itF != funcAdapter.end()) {
+                        if (argIndex < argsVec.size()) {
+                            output += itF->second(argsVec[argIndex]);
+                            ++argIndex;
+                            i = j + 1;
+                            continue;
+                        } else {
+                            throw std::invalid_argument(std::string("Not enough arguments for function format '{") + inner + "}'");
+                        }
+                    }
                     auto itFA = formatAdapter.find(inner);
                     if (itFA != formatAdapter.end()) {
                         work = work.substr(0, i) + itFA->second + work.substr(j + 1);
@@ -423,6 +483,8 @@ public:
 private:
     AdapterMap formatAdapter;
     AdapterMap labelAdapter;
+        FuncMap funcAdapter;
+
 
     std::string ANSI256="", ANSIBackground256="";
 
@@ -537,20 +599,10 @@ private:
             temp = match.suffix();
         }
         processed += temp;
-        
         return processed;
     }
 
-    std::string variantToString(const VariantType& v) {
-        std::ostringstream oss;
-        if (std::holds_alternative<int>(v)) oss << std::get<int>(v);
-        else if (std::holds_alternative<double>(v)) oss << std::get<double>(v);
-        else if (std::holds_alternative<std::string>(v)) oss << std::get<std::string>(v);
-        else if (std::holds_alternative<bool>(v)) oss << (std::get<bool>(v) ? "true" : "false");
-        else if (std::holds_alternative<char>(v)) oss << std::get<char>(v);
-
-        return oss.str();
-    }
+    
     struct FormatState {
         bool left = false;
         bool right = false;
@@ -597,7 +649,7 @@ inline AsulFormatString &asul_formatter() {
 
 template <typename... Args>
 inline std::string f(const std::string &fmt, const Args &...args) {
-  return asul_formatter().f(fmt, args...);
+    return asul_formatter().template f<Args...>(fmt, args...);
 }
 
 inline void print(const std::string &fmt) { asul_formatter().print(fmt); }
