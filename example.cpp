@@ -125,19 +125,19 @@ int main(int argc,char *argv[]){
     }catch(const std::exception &e){
         print("(ERROR) Caught exception: {}[[ENDL]]", e.what());
     }
+
     //流动彩虹
-    struct Args {
+    struct RainbowArgs {
         std::string arg1;
         int frame;
     };
-    asul_formatter().installTypedFuncAdapter<Args>("stringWithRainbowColor", [](Args args) -> std::string {
+    asul_formatter().installTypedFuncAdapter<RainbowArgs>("stringWithRainbowColor", [](RainbowArgs args) -> std::string {
         return stringWithRanbowColorFrame(args.arg1, args.frame);
     });
     std::string flowRainbow = "Flowing Rainbow Text Animation ";
     print("(CURSOR_HIDE)");
     for(int frame=0;frame<240;++frame){
-        // std::string line= stringWithRanbowColorFrame(flowRainbow,frame);
-        std::string line = f("{stringWithRainbowColor}", Args{flowRainbow, frame} );
+        std::string line = f("{stringWithRainbowColor}", RainbowArgs{flowRainbow, frame} );
         std::cout << "\r" << line << std::flush;
         std::this_thread::sleep_for(std::chrono::milliseconds(24));
     }

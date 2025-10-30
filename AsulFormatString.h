@@ -26,6 +26,10 @@
 #define NO_DEBUG
 #endif // ALLOW_DEBUG_ASULFORMATSTRING
 
+#ifdef ALLOW_DEFINE
+#define NO_DEFINE
+#endif
+
 #include <iostream>
 #include <map>
 #include <unordered_map>
@@ -63,21 +67,6 @@ public:
                 catch (const std::bad_any_cast&) {
                     try { oss << std::any_cast<const char*>(a); }
                     catch (const std::bad_any_cast&) {
-                        oss << "<any:" << a.type().name() << ">";
-                    }
-                }
-            }
-        }
-        else if (std::holds_alternative<std::any>(v)) {
-            const std::any &a = std::get<std::any>(v);
-            if (!a.has_value()) {
-                oss << "<empty any>";
-            } else {
-                try { oss << std::any_cast<std::string>(a); }
-                catch (const std::bad_any_cast&) {
-                    try { oss << std::any_cast<const char*>(a); }
-                    catch (const std::bad_any_cast&) {
-                        // fallback: print type name
                         oss << "<any:" << a.type().name() << ">";
                     }
                 }
@@ -268,7 +257,6 @@ public:
                         result += "{}";
                     }
                 } else {
-                    // 如果是已注册的 funcAdapter（函数格式化适配器），用下一个参数调用并插入返回值
                     auto itF = funcAdapter.find(placeholder);
                     if (itF != funcAdapter.end()) {
                         if (argIndex < argsVec.size()) {
@@ -502,7 +490,6 @@ public:
                         i = j + 1;
                         continue;
                     }
-                    // 如果注册了 funcAdapter，则以下一个参数调用并把返回值写入输出
                     auto itF = funcAdapter.find(inner);
                     if (itF != funcAdapter.end()) {
                         if (argIndex < argsVec.size()) {
@@ -545,7 +532,7 @@ private:
     std::string ANSI256="", ANSIBackground256="";
 
     void argvs_helper(std::vector<VariantType>& vec) { /* no args */ }
-    // trait to check if T is streamable to ostream
+
     template <typename T>
     struct is_streamable {
         template <typename U>
