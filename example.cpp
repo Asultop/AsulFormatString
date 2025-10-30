@@ -105,13 +105,46 @@ int main(int argc,char *argv[]){
     for(double freq=0.1;freq<=1.0;freq+=0.1){
         print("{}[[ENDL]]",stringWithRanbowColor(f("Frequency: {}",freq),freq)); // 彩虹文字测试
     }
+    
+    struct SumArgs {
+        int a, b, c;    
+    };
+    struct WrongArg{
+        int a, b;
+    };
+    asul_formatter().installTypedFuncAdapter<SumArgs>("colorfulSum", [](SumArgs args) -> std::string {
+        int sum = args.a + args.b + args.c;
+        std::string s = "Sum: " + std::to_string(sum);
+        return stringWithRanbowColor(s);
+    });
+    print("{colorfulSum}[[ENDL]]", SumArgs{10, 20, 30}); // 彩虹多参求和测试
+
+    // 彩虹求和测试
+    try{
+        print("{colorfulSum}[[ENDL]]", WrongArg{100, 200}); 
+    }catch(const std::exception &e){
+        print("(ERROR) Caught exception: {}[[ENDL]]", e.what());
+    }
     //流动彩虹
+    struct Args {
+        std::string arg1;
+        int frame;
+    };
+    asul_formatter().installTypedFuncAdapter<Args>("stringWithRainbowColor", [](Args args) -> std::string {
+        return stringWithRanbowColorFrame(args.arg1, args.frame);
+    });
     std::string flowRainbow = "Flowing Rainbow Text Animation ";
     print("(CURSOR_HIDE)");
     for(int frame=0;frame<240;++frame){
-        std::string line= stringWithRanbowColorFrame(flowRainbow,frame);
+        // std::string line= stringWithRanbowColorFrame(flowRainbow,frame);
+        std::string line = f("{stringWithRainbowColor}", Args{flowRainbow, frame} );
         std::cout << "\r" << line << std::flush;
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(std::chrono::milliseconds(24));
     }
     print("(CURSOR_SHOW)");
+
+    
+
+
+    
 }

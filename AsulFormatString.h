@@ -28,6 +28,8 @@
 
 #include <iostream>
 #include <map>
+#include <unordered_map>
+#include <functional>
 #include <iomanip>
 #include <regex>
 #include <sstream>
@@ -35,11 +37,13 @@
 #include <stdexcept>
 #include <string>
 #include <variant>
+#include <any>
+#include <type_traits>
 #include <vector>
 #include "Color256.h"
 class AsulFormatString {
 public:
-    using VariantType = std::variant<int, double, std::string, bool, char>;
+    using VariantType = std::variant<int, double, std::string, bool, char, std::any>;
     using AdapterMap = std::unordered_map<std::string, std::string>;
     using FuncMap = std::unordered_map<std::string, std::function<std::string(const VariantType &)> >;
     
@@ -50,6 +54,35 @@ public:
         else if (std::holds_alternative<std::string>(v)) oss << std::get<std::string>(v);
         else if (std::holds_alternative<bool>(v)) oss << (std::get<bool>(v) ? "true" : "false");
         else if (std::holds_alternative<char>(v)) oss << std::get<char>(v);
+        else if (std::holds_alternative<std::any>(v)) {
+            const std::any &a = std::get<std::any>(v);
+            if (!a.has_value()) {
+                oss << "<empty any>";
+            } else {
+                try { oss << std::any_cast<std::string>(a); }
+                catch (const std::bad_any_cast&) {
+                    try { oss << std::any_cast<const char*>(a); }
+                    catch (const std::bad_any_cast&) {
+                        oss << "<any:" << a.type().name() << ">";
+                    }
+                }
+            }
+        }
+        else if (std::holds_alternative<std::any>(v)) {
+            const std::any &a = std::get<std::any>(v);
+            if (!a.has_value()) {
+                oss << "<empty any>";
+            } else {
+                try { oss << std::any_cast<std::string>(a); }
+                catch (const std::bad_any_cast&) {
+                    try { oss << std::any_cast<const char*>(a); }
+                    catch (const std::bad_any_cast&) {
+                        // fallback: print type name
+                        oss << "<any:" << a.type().name() << ">";
+                    }
+                }
+            }
+        }
         return oss.str();
     }
     AsulFormatString() = default;
@@ -67,6 +100,29 @@ public:
         }
     }
     void clearFuncFormatAdapter() { funcAdapter.clear(); }
+
+    template <typename T, typename Fn>
+    void installTypedFuncAdapter(const std::string &key, Fn fn) {
+        funcAdapter[key] = [fn, key](const VariantType &v) -> std::string {
+            return std::visit([&](auto&& arg) -> std::string {
+                using U = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<U, std::any>) {
+                    try {
+                        const T &t = std::any_cast<const T&>(arg);
+                        return fn(t);
+                    } catch (const std::bad_any_cast&) {
+                        throw std::invalid_argument("Type mismatch for funcAdapter '" + key + "': bad any_cast");
+                    }
+                } else {
+                    if constexpr (std::is_same_v<U, T>) {
+                        return fn(arg);
+                    } else {
+                        throw std::invalid_argument("Type mismatch for funcAdapter '" + key + "'");
+                    }
+                }
+            }, v);
+        };
+    }
 
     void installFormatAdapter(const AdapterMap& mp) {
         for (const auto& [key, value] : mp) {
@@ -489,13 +545,34 @@ private:
     std::string ANSI256="", ANSIBackground256="";
 
     void argvs_helper(std::vector<VariantType>& vec) { /* no args */ }
+    // trait to check if T is streamable to ostream
+    template <typename T>
+    struct is_streamable {
+        template <typename U>
+        static auto test(int) -> decltype(std::declval<std::ostream&>() << std::declval<U>(), std::true_type());
+        template <typename>
+        static auto test(...) -> std::false_type;
+        static constexpr bool value = decltype(test<T>(0))::value;
+    };
+
     template <typename T>
     void argvs_helper(std::vector<VariantType>& vec, const T& first) {
-        vec.push_back(first);
+        using DT = std::decay_t<T>;
+        if constexpr (std::is_same_v<DT, int> || std::is_same_v<DT, double> || std::is_same_v<DT, std::string> || std::is_same_v<DT, bool> || std::is_same_v<DT, char> || std::is_same_v<DT, std::any>) {
+            vec.push_back(first);
+        } else if constexpr (std::is_same_v<DT, const char*> || std::is_same_v<DT, char*>) {
+            vec.push_back(std::string(first));
+        } else if constexpr (is_streamable<DT>::value) {
+            std::ostringstream oss; oss << first; vec.push_back(oss.str());
+        } else {
+            // unknown/non-streamable custom type: store as std::any so installTypedFuncAdapter can any_cast it
+            vec.push_back(std::any(first));
+        }
     }
     template <typename T, typename... Args>
     void argvs_helper(std::vector<VariantType>& vec, const T& first, const Args&... args) {
-        vec.push_back(first);
+        // Use the single-argument overload to correctly handle conversion/any storage
+        argvs_helper(vec, first);
         argvs_helper(vec, args...);
     }
 
