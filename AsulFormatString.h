@@ -1,12 +1,12 @@
 
 /*
 
- *   ______     ______   ______    
- *  /\  __ \   /\  ___\ /\  ___\   
- *  \ \  __ \  \ \  __\ \ \___  \  
- *   \ \_\ \_\  \ \_\    \/\_____\ 
- *    \/_/\/_/   \/_/     \/_____/ 
- *                                 
+*   ______     ______    ______    
+*  /\  __ \   /\  ___\  /\  ___\   
+*  \ \  __ \  \ \  __\  \ \___  \  
+*   \ \_\ \_\  \ \_\     \/\_____\ 
+*    \/_/\/_/   \/_/      \/_____/ 
+*                                 
 
     File        : AsulFormatString.h
     Version     : alpha-v0.1.0
@@ -26,8 +26,10 @@
 #define NO_DEBUG
 #endif // ALLOW_DEBUG_ASULFORMATSTRING
 
-#ifdef ALLOW_DEFINE
+#ifndef NOT_ALLOW_DEFINE
 #define NO_DEFINE
+#elif
+// waiting to be finished
 #endif
 
 #include <iostream>

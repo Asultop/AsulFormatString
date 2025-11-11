@@ -6,6 +6,35 @@
 #include <thread>
 #include <chrono>
 #include <future>
+#ifdef _WIN32
+#  include <windows.h>
+#endif
+#include <vector>
+
+// UTF-8 码点切分辅助：返回每个码点的原始字节片段（保持原编码，不做宽字符转换）
+static std::vector<std::string> utf8_codepoints(const std::string &s) {
+    std::vector<std::string> cps;
+    for (size_t i = 0; i < s.size();) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        size_t len = 1;
+        if ((c & 0x80) == 0x00) { // 0xxxxxxx ASCII
+            len = 1;
+        } else if ((c & 0xE0) == 0xC0 && i + 1 < s.size()) { // 110xxxxx 两字节
+            len = 2;
+        } else if ((c & 0xF0) == 0xE0 && i + 2 < s.size()) { // 1110xxxx 三字节
+            len = 3;
+        } else if ((c & 0xF8) == 0xF0 && i + 3 < s.size()) { // 11110xxx 四字节
+            len = 4;
+        } else {
+            // 非法或截断，按单字节回退，避免越界
+            len = 1;
+        }
+        cps.emplace_back(s.substr(i, len));
+        i += len;
+    }
+    return cps;
+}
+
 
 
 struct PrintStruct {
@@ -16,35 +45,53 @@ struct PrintStruct {
         return "{a=" + std::to_string(a) + ", b=" + std::to_string(b) + ", c=" + c + "}";
     }
 };
+// 按码点着色，避免中文被拆分
 std::string stringWithRanbowColor(std::string src,double frequency=0.3){
+    auto cps = utf8_codepoints(src);
     std::string result;
-    size_t len=src.length();
-    for(size_t i=0;i<len;++i){
+    for(size_t i=0;i<cps.size();++i){
+        // 使用码点序号 i 生成颜色，确保一个中文字符整体使用同一颜色
         unsigned char r = static_cast<unsigned char>((std::sin(frequency * i + 0) + 1) * 127.5);
         unsigned char g = static_cast<unsigned char>((std::sin(frequency * i + 2) + 1) * 127.5);
         unsigned char b = static_cast<unsigned char>((std::sin(frequency * i + 4) + 1) * 127.5);
-        result += Color256::rgba(r, g, b, 1).toANSI256() + src[i];
+        result += Color256::rgba(r, g, b, 1).toANSI256() + cps[i];
     }
     result += "\033[0m";
     return result;
 }
 std::string stringWithRanbowColorFrame(std::string src,int frame,double frequency=0.3){
+    auto cps = utf8_codepoints(src);
     std::string result;
-    size_t len=src.length();
-    for(size_t i=0;i<len;++i){
-        if(src[i]==' ') {
-            result += src[i];
+    for(size_t i=0;i<cps.size();++i){
+        if(cps[i]==" ") { // 保持空格不着色
+            result += cps[i];
             continue;
         }
         unsigned char r = static_cast<unsigned char>((std::sin(frequency * i + frame * 0.3 + 0) + 1) * 127.5);
         unsigned char g = static_cast<unsigned char>((std::sin(frequency * i + frame * 0.3 + 2) + 1) * 127.5);
         unsigned char b = static_cast<unsigned char>((std::sin(frequency * i + frame * 0.3 + 4) + 1) * 127.5);
-        result += Color256::rgba(r, g, b, 1).toANSI256() + src[i];
+        result += Color256::rgba(r, g, b, 1).toANSI256() + cps[i];
     }
     result += "\033[0m";
     return result;
 }
 int main(int argc,char *argv[]){
+
+#ifdef _WIN32
+    // 启用 Windows 控制台 UTF-8 与 ANSI VT 支持，避免中文乱码与颜色失效
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE) {
+        DWORD mode = 0;
+        if (GetConsoleMode(hOut, &mode)) {
+            mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(hOut, mode);
+        }
+    }
+#endif
+
+
     asul_formatter().installColorFormatAdapter();
     asul_formatter().installColorFormatAdapter(); // 测试重复安装
 
@@ -56,16 +103,20 @@ int main(int argc,char *argv[]){
     // 注册示例 funcAdapter: toUpper
     using VT = AsulFormatString::VariantType;
     AsulFormatString::FuncMap fm;
-    fm["toUpper"] = [](const VT &v)->std::string {
+    auto toUpperFunc = [](const VT &v)->std::string {
         std::string s = AsulFormatString::variantToString(v);
         for (auto &c : s) c = (char)std::toupper((unsigned char)c);
         return s;
     };
-    fm["stringWithRainbowColor"] = [](const VT &v)->std::string {
+    auto stringWithRainbowColorFunc = [](const VT &v)->std::string {
         std::string s = AsulFormatString::variantToString(v);
         return stringWithRanbowColor(s);
     };
-    asul_formatter().installFuncFormatAdapter(fm);
+    // asul_formatter().installFuncFormatAdapter(fm);
+    asul_formatter().installFuncFormatAdapter({
+        {"toUpper",toUpperFunc},
+        {"stringWithRainbowColor",stringWithRainbowColorFunc}
+    });
 
     // 示例：在 f/print 中调用 {toUpper}
     std::cout << f("Func f() -> {toUpper}", std::string("hello")) << std::endl;
@@ -134,17 +185,16 @@ int main(int argc,char *argv[]){
     asul_formatter().installTypedFuncAdapter<RainbowArgs>("stringWithRainbowColor", [](RainbowArgs args) -> std::string {
         return stringWithRanbowColorFrame(args.arg1, args.frame);
     });
-    std::string flowRainbow = "Flowing Rainbow Text Animation ";
+    std::string flowRainbow = "Flowing Rainbow Text Animation 中文测试 123 !@#";
     print("(CURSOR_HIDE)");
     for(int frame=0;frame<240;++frame){
         std::string line = f("{stringWithRainbowColor}", RainbowArgs{flowRainbow, frame} );
         std::cout << "\r" << line << std::flush;
         std::this_thread::sleep_for(std::chrono::milliseconds(24));
     }
-    print("(CURSOR_SHOW)");
+    print("[[ENDL]](CURSOR_SHOW)");
 
-    
+    srand((unsigned int)time(nullptr));
+    print("[[RIGHT]][[SETW:32]]{stringWithRainbowColor}[[ENDL]]", RainbowArgs{"Finished!",rand()*0x3f3f3f % 100007}); // 测试彩虹文字对齐
 
-
-    
 }
